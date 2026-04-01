@@ -9,7 +9,6 @@
         body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; }
         #map { height: 100vh; width: 100%; }
         
-        /* 彈出視窗排版優化 */
         .leaflet-popup-content { font-size: 15px; line-height: 1.6; min-width: 200px; }
         .popup-title { font-size: 18px; color: #333; font-weight: bold; margin-bottom: 8px; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
         .zone-tag { font-size: 13px; color: #666; font-weight: normal; }
@@ -17,15 +16,13 @@
         .phone-link { color: #007bff; text-decoration: none; font-weight: bold; font-size: 16px; }
         .divider { margin: 8px 0; border: 0; border-top: 1px dashed #ccc; }
 
-        /* 🔥 新增：地圖上直接顯示的里名標籤樣式 🔥 */
         .village-label {
-            background: transparent; /* 背景透明 */
-            border: none;            /* 取消邊框 */
-            box-shadow: none;        /* 取消陰影 */
-            font-size: 13px;         /* 字體大小 */
-            font-weight: bold;       /* 粗體 */
-            color: #222;             /* 字體顏色 (深灰黑) */
-            /* 加上白色文字陰影，確保在深色背景上也看得清楚 */
+            background: transparent; 
+            border: none;            
+            box-shadow: none;        
+            font-size: 13px;         
+            font-weight: bold;       
+            color: #222;             
             text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white; 
         }
     </style>
@@ -35,18 +32,32 @@
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
 <script src="zhonghe.js"></script>
 
 <script>
-    // 1. 初始化地圖
-    var map = L.map('map').setView([24.9930, 121.4960], 14);
+    // 1. 定義多種底圖
+    var googleStreets = L.tileLayer('http://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20, attribution: '© Google' });
+    var googleSat = L.tileLayer('http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20, attribution: '© Google' });
+    var cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '© CARTO' });
+    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
 
-    // 2. 加入底圖
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
+    // 2. 初始化地圖
+    var map = L.map('map', {
+        center: [24.9930, 121.4960],
+        zoom: 14,
+        layers: [googleStreets] 
+    });
+
+    var baseMaps = {
+        "Google 街道圖": googleStreets,
+        "簡約白底圖 (看數據推薦)": cartoLight,
+        "Google 衛星圖": googleSat
+    };
+
+    // 這裡先宣告 layerControl，等一下抓完資料會把分區框線加進去
+    var layerControl = L.control.layers(baseMaps).addTo(map);
 
     // 3. API 網址
     var apiUrl = 'https://script.google.com/macros/s/AKfycbzQOsa2wW0Cui7CxbmG6aLWqyahGLypxdKra6UGAgrNqztWmLuQ3gpaTLs1CwmSzs6kZQ/exec'; 
@@ -55,9 +66,9 @@
     function getColor(rate) {
         if (rate === undefined || rate === null || rate === "") return '#cccccc'; 
         var percent = rate * 100; 
-        return percent >= 26 ? '#FF9999' : // 粉紅色
-               percent >= 23 ? '#87CEFA' : // 天晴色
-                               '#c7e9c0';  // 淺綠色
+        return percent >= 26 ? '#FF9999' : 
+               percent >= 23 ? '#87CEFA' : 
+                               '#c7e9c0';  
     }
 
     // 5. 抓取資料並渲染地圖
@@ -65,7 +76,16 @@
         .then(response => response.json())
         .then(supportData => {
             
-            L.geoJSON(zhongheData, {
+            // 🔥 第一步：把 API 裡的「四大分區」屬性，寫入到 GeoJSON 裡面
+            zhongheData.features.forEach(function(feature) {
+                var villName = feature.properties.VILLNAME;
+                var info = supportData[villName];
+                // 如果該里有分區資料，就存成 ZONE 屬性；如果沒有，就歸類為 "未分類"
+                feature.properties.ZONE = (info && info.zone && info.zone !== '#N/A') ? info.zone : '未分類';
+            });
+
+            // 第二步：畫出各個里的熱區顏色與彈出視窗 (原有的功能)
+            var villagesLayer = L.geoJSON(zhongheData, {
                 style: function(feature) {
                     var villName = feature.properties.VILLNAME;
                     var info = supportData[villName];
@@ -73,8 +93,8 @@
                     
                     return {
                         fillColor: getColor(rate),
-                        weight: 1.5,
-                        opacity: 1,
+                        weight: 1,       // 裡的邊界線稍微變細
+                        opacity: 0.8,
                         color: 'white',
                         fillOpacity: 0.8
                     };
@@ -83,14 +103,8 @@
                     var villName = feature.properties.VILLNAME;
                     var info = supportData[villName];
 
-                    // 🔥 新增：在區塊正中央永久顯示里名 🔥
-                    layer.bindTooltip(villName, {
-                        permanent: true,        // 永久顯示，不用等滑鼠滑過
-                        direction: 'center',    // 對齊區塊正中央
-                        className: 'village-label' // 套用我們上面寫好的 CSS 樣式
-                    });
+                    layer.bindTooltip(villName, { permanent: true, direction: 'center', className: 'village-label' });
 
-                    // 彈出視窗內容 (維持不變)
                     if (info) {
                         var rateText = info.supportRate ? (info.supportRate * 100).toFixed(2) + '%' : '無資料';
                         var supportCount = info.supportCount || 0;
@@ -115,6 +129,30 @@
                     }
                 }
             }).addTo(map);
+
+            // 🔥 第三步：使用 Turf.js 合併相同分區(ZONE)的多邊形 🔥
+            var mergedZones = turf.dissolve(zhongheData, { propertyName: 'ZONE' });
+
+            // 🔥 第四步：畫出合併後的四大分區外框 🔥
+            var zoneBoundaryLayer = L.geoJSON(mergedZones, {
+                style: function(feature) {
+                    // 如果是沒有分類的里，就不要畫框線
+                    if (feature.properties.ZONE === '未分類') return { opacity: 0 };
+                    
+                    return {
+                        color: '#2c3e50',   // 框線顏色：深藍灰色
+                        weight: 4,          // 框線加粗，明顯區分四大分區
+                        opacity: 1,         // 框線不透明度
+                        fillOpacity: 0,     // 絕對要設定為 0 (透明)！這樣才看得到底下各里的顏色
+                        dashArray: '8, 8'   // 虛線效果，看起來更像行政區界線
+                    };
+                },
+                // ⚠️ 關鍵設定：讓滑鼠游標「穿透」這個大外框，否則點不到底下的里名！
+                interactive: false 
+            }).addTo(map);
+
+            // 將四大分區外框加入右上角的圖層控制器，讓團隊可以自由打勾/取消
+            layerControl.addOverlay(zoneBoundaryLayer, "⬛ 顯示四大分區外框");
             
         })
         .catch(error => {
