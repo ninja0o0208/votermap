@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>中和民眾黨支持度</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* 彈出視窗排版優化 */
+        .leaflet-popup-content { font-size: 15px; line-height: 1.6; min-width: 200px; }
+        /* 標題顏色改為較深的灰色，避免與紅色區塊衝突 */
+        .popup-title { font-size: 18px; color: #333; font-weight: bold; margin-bottom: 8px; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
+        .zone-tag { font-size: 13px; color: #666; font-weight: normal; }
+        /* 高亮文字改為深紅色 */
+        .highlight { color: #b30000; font-weight: bold; font-size: 16px; }
+        .phone-link { color: #007bff; text-decoration: none; font-weight: bold; font-size: 16px; }
+        .divider { margin: 8px 0; border: 0; border-top: 1px dashed #ccc; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="zhonghe.js"></script>
+
+<script>
+    // 1. 初始化地圖
+    var map = L.map('map').setView([24.9930, 121.4960], 14);
+
+    // 2. 加入底圖
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // 3. 填入你的 Apps Script API 網址
+    var apiUrl = 'https://script.google.com/macros/s/AKfycbzQOsa2wW0Cui7CxbmG6aLWqyahGLypxdKra6UGAgrNqztWmLuQ3gpaTLs1CwmSzs6kZQ/exec'; 
+
+    // 🎯 4. 設定新的顏色邏輯 (依需求修改)
+    function getColor(rate) {
+        if (rate === undefined || rate === null || rate === "") return '#cccccc'; // 預設灰色
+        
+        // Google Sheets 的 % 傳過來會是小數點 (例如 25.47% 會變成 0.2547)
+        var percent = rate * 100; 
+
+        return percent >= 26 ? '#FF9999' : // 🔴 26%以上：粉紅色/軟紅 (好閱讀，不鎖死)
+               percent >= 23 ? '#87CEFA' : // 🔵 23%~26%：天晴色 (Light Sky Blue)
+                               '#c7e9c0';  // 🟢 不到23%：淺綠色
+    }
+
+    // 5. 抓取資料並渲染地圖
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(supportData => {
+            
+            L.geoJSON(zhongheData, {
+                style: function(feature) {
+                    var villName = feature.properties.VILLNAME;
+                    var info = supportData[villName];
+                    var rate = info ? info.supportRate : null;
+                    
+                    return {
+                        fillColor: getColor(rate),
+                        weight: 1.5,
+                        opacity: 1,
+                        color: 'white', // 白色邊界框線
+                        fillOpacity: 0.8 // 稍微提高透明度，讓顏色更飽滿
+                    };
+                },
+                onEachFeature: function (feature, layer) {
+                    var villName = feature.properties.VILLNAME;
+                    var info = supportData[villName];
+
+                    if (info) {
+                        // 處理無資料的預設值，並計算百分比顯示格式
+                        var rateText = info.supportRate ? (info.supportRate * 100).toFixed(2) + '%' : '無資料';
+                        var supportCount = info.supportCount || 0;
+                        var totalVotes = info.totalVotes || 0;
+                        var chiefName = info.chiefName || '無資料';
+                        var chiefGender = info.chiefGender || '';
+                        var chiefPhone = info.chiefPhone || '無資料';
+                        var zone = info.zone || '未設定分區';
+
+                        var popupContent = `
+                            <div class="popup-title">${villName} <span class="zone-tag">(${zone})</span></div>
+                            <div><b>支持度：</b> <span class="highlight">${rateText}</span></div>
+                            <div><b>支持人數：</b> ${supportCount} 人</div>
+                            <div><b>總投票人數：</b> ${totalVotes} 人</div>
+                            <hr class="divider">
+                            <div><b>里長：</b> ${chiefName} ${chiefGender ? '('+chiefGender+')' : ''}</div>
+                            <div><b>電話：</b> <a class="phone-link" href="tel:${chiefPhone}">${chiefPhone}</a></div>
+                        `;
+                        layer.bindPopup(popupContent);
+                    } else {
+                        layer.bindPopup(`<div class="popup-title">${villName}</div><div>尚未建立戰情資料</div>`);
+                    }
+                }
+            }).addTo(map);
+            
+        })
+        .catch(error => {
+            console.error('API 讀取失敗:', error);
+            alert("資料讀取失敗，請確認網路連線或 API 網址是否正確。");
+        });
+
+</script>
+</body>
+</html>
